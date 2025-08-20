@@ -1,0 +1,9 @@
+<!-- 一個簡單的小豬 SVG 當 favicon -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <circle cx="32" cy="32" r="30" fill="#ffb6c1"></circle>
+  <circle cx="24" cy="26" r="4" fill="#333"></circle>
+  <circle cx="40" cy="26" r="4" fill="#333"></circle>
+  <ellipse cx="32" cy="40" rx="10" ry="7" fill="#ff88aa" stroke="#333" stroke-width="2"></ellipse>
+  <circle cx="28" cy="40" r="2" fill="#333"></circle>
+  <circle cx="36" cy="40" r="2" fill="#333"></circle>
+</svg>
