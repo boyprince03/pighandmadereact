@@ -1,3 +1,4 @@
+// /backend/server.js
 import express from 'express';
 import cors from 'cors';
 import morgan from 'morgan';
@@ -37,11 +38,9 @@ const signToken = (user) =>
 const getUserByEmailStmt = db.prepare('SELECT id, name, email, password_hash, provider FROM users WHERE email = ?');
 const getUserByIdStmt = db.prepare('SELECT id, name, email, provider FROM users WHERE id = ?');
 const insertLocalUserStmt = db.prepare(
-  // 🔧 這裡把 "local" 改為 'local'
   "INSERT INTO users (name, email, password_hash, provider) VALUES (@name, @email, @hash, 'local')"
 );
 const insertGoogleUserStmt = db.prepare(
-  // 🔧 這裡把 "google" 改為 'google'
   "INSERT INTO users (name, email, provider, provider_id) VALUES (@name, @email, 'google', @pid)"
 );
 
@@ -119,7 +118,6 @@ app.post('/api/auth/google', async (req, res) => {
       const info = insertGoogleUserStmt.run({ name, email, pid: sub });
       found = getUserByIdStmt.get(info.lastInsertRowid);
     } else {
-      // 若是本地帳號存在，也允許以相同 email 透過 Google 登入：維持一筆紀錄
       found = getUserByIdStmt.get(found.id);
     }
 
@@ -245,6 +243,56 @@ app.post('/api/orders', (req, res) => {
     console.error(e);
     res.status(500).json({ error: 'Failed to create order' });
   }
+});
+
+/** ✅ 查詢訂單：回傳訂單基本資料 + 品項 */
+app.get('/api/orders/:id', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!id) return res.status(400).json({ error: '訂單編號格式錯誤' });
+
+  const getOrder = db.prepare(`
+    SELECT id, created_at, subtotal_cents, shipping_cents, total_cents,
+           customer_name, customer_phone, shipping_address
+    FROM orders WHERE id = ?
+  `);
+  const order = getOrder.get(id);
+  if (!order) return res.status(404).json({ error: '查無此訂單' });
+
+  const getItems = db.prepare(`
+    SELECT oi.product_id, oi.quantity, oi.unit_price_cents,
+           p.name, p.image
+    FROM order_items oi
+    JOIN products p ON p.id = oi.product_id
+    WHERE oi.order_id = ?
+    ORDER BY oi.id ASC
+  `);
+  const items = getItems.all(id).map(it => ({
+    product_id: it.product_id,
+    name: it.name,
+    image: it.image,
+    quantity: it.quantity,
+    unit_price_cents: it.unit_price_cents,
+    unitPriceText: priceToDisplay(it.unit_price_cents),
+    line_cents: it.unit_price_cents * it.quantity,
+    lineText: priceToDisplay(it.unit_price_cents * it.quantity)
+  }));
+
+  res.json({
+    id: order.id,
+    created_at: order.created_at,
+    subtotal_cents: order.subtotal_cents,
+    shipping_cents: order.shipping_cents,
+    total_cents: order.total_cents,
+    subtotalText: priceToDisplay(order.subtotal_cents),
+    shippingText: priceToDisplay(order.shipping_cents),
+    totalText: priceToDisplay(order.total_cents),
+    customer: {
+      name: order.customer_name,
+      phone: order.customer_phone,
+      address: order.shipping_address
+    },
+    items
+  });
 });
 
 const PORT = process.env.PORT || 4000;

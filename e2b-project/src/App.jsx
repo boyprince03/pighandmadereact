@@ -1,3 +1,4 @@
+// /frontend/src/App.jsx
 import { useEffect, useMemo, useState } from 'react';
 import Header from './components/Header';
 import Hero from './components/Hero';
@@ -6,6 +7,7 @@ import ProductGrid from './components/ProductGrid';
 import Footer from './components/Footer';
 import CheckoutPage from './components/CheckoutPage';
 import LoginRegister from './components/LoginRegister';
+import OrderLookup from './components/OrderLookup';
 
 function App() {
   const [allProducts, setAllProducts] = useState([]);
@@ -105,7 +107,7 @@ function App() {
       />
 
       <main>
-        {view === 'products' ? (
+        {view === 'products' && (
           <>
             <Hero />
             <InfoSection
@@ -116,9 +118,15 @@ function App() {
             />
             <ProductGrid products={displayedProducts} onAddToCart={addToCart} />
           </>
-        ) : (
+        )}
+
+        {view === 'checkout' && (
           // ✅ 結帳頁依舊「不要求登入」
           <CheckoutPage cart={cart} setCart={setCart} setView={setView} />
+        )}
+
+        {view === 'orders' && (
+          <OrderLookup setView={setView} />
         )}
       </main>
 

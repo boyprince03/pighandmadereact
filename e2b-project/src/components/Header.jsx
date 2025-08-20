@@ -1,3 +1,4 @@
+// /frontend/src/components/Header.jsx
 import React from 'react';
 
 const Header = ({ cartItemCount, setView, user, onOpenAuth, onLogout }) => {
@@ -12,11 +13,19 @@ const Header = ({ cartItemCount, setView, user, onOpenAuth, onLogout }) => {
           </div>
 
           <div className="flex items-center space-x-4">
+            {/* 查詢訂單 */}
+            <button
+              onClick={() => setView('orders')}
+              className="hidden sm:inline-flex items-center px-3 py-2 text-sm rounded-md border hover:bg-gray-50"
+            >
+              查詢訂單
+            </button>
+
             {/* 使用者區塊 */}
             {!user ? (
               <button
                 onClick={onOpenAuth}
-                className="inline-flex items-center px-3 py-2 text-sm rounded-md bg-gray-900 text-white hover:bg-black"
+                className="inline-flex items-center px-3 py-2 text-sm rounded-md bg-gray-900 text-white hover:bg黑"
               >
                 登入 / 註冊
               </button>
