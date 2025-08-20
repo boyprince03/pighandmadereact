@@ -15,6 +15,19 @@ export function initSchema() {
   db.exec(`
     PRAGMA foreign_keys = ON;
 
+    -- 使用者
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT,
+      email TEXT UNIQUE,
+      password_hash TEXT,
+      provider TEXT NOT NULL DEFAULT 'local',  -- 'local' | 'google'
+      provider_id TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+
+    -- 產品
     CREATE TABLE IF NOT EXISTS products (
       id INTEGER PRIMARY KEY,
       name TEXT NOT NULL,
@@ -22,9 +35,9 @@ export function initSchema() {
       category TEXT NOT NULL,
       image TEXT
     );
-
     CREATE INDEX IF NOT EXISTS idx_products_category ON products(category);
 
+    -- 訂單
     CREATE TABLE IF NOT EXISTS orders (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
@@ -36,6 +49,7 @@ export function initSchema() {
       shipping_address TEXT
     );
 
+    -- 訂單項目
     CREATE TABLE IF NOT EXISTS order_items (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       order_id INTEGER NOT NULL,

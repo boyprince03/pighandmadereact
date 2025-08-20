@@ -5,6 +5,7 @@ import InfoSection from './components/InfoSection';
 import ProductGrid from './components/ProductGrid';
 import Footer from './components/Footer';
 import CheckoutPage from './components/CheckoutPage';
+import LoginRegister from './components/LoginRegister';
 
 function App() {
   const [allProducts, setAllProducts] = useState([]);
@@ -14,22 +15,24 @@ function App() {
   const [cart, setCart] = useState([]);
   const [view, setView] = useState('products');
 
-  // 允許用環境變數覆蓋，否則預設走 /api（由 Vite 代理）
+  // 🔐 auth
+  const [user, setUser] = useState(null);
+  const [authOpen, setAuthOpen] = useState(false);
+
   const API_BASE = import.meta.env.VITE_API_BASE || '/api';
 
+  // 產品載入
   useEffect(() => {
     const load = async () => {
       try {
-        // 先走代理
-        let res = await fetch(`${API_BASE}/products`);
+        let res = await fetch(`${API_BASE}/products`, { credentials: 'include' });
         if (!res.ok) throw new Error('proxy not ready');
         const data = await res.json();
         setAllProducts(data);
         setDisplayedProducts(data);
       } catch (e) {
-        // 代理失敗就直連後端
         try {
-          let res2 = await fetch(`http://localhost:4000/api/products`);
+          let res2 = await fetch(`http://localhost:4000/api/products`, { credentials: 'include' });
           const data2 = await res2.json();
           setAllProducts(data2);
           setDisplayedProducts(data2);
@@ -39,6 +42,19 @@ function App() {
       }
     };
     load();
+  }, []);
+
+  // 啟動時嘗試帶 Cookie 查詢登入狀態
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/auth/profile`, { credentials: 'include' });
+        if (res.ok) {
+          const u = await res.json();
+          setUser(u);
+        }
+      } catch {}
+    })();
   }, []);
 
   const categories = useMemo(() => {
@@ -72,9 +88,22 @@ function App() {
     });
   };
 
+  const handleOpenAuth = () => setAuthOpen(true);
+  const handleLogout = async () => {
+    await fetch(`${API_BASE}/auth/logout`, { method: 'POST', credentials: 'include' });
+    setUser(null);
+  };
+
   return (
     <div className="bg-white font-sans">
-      <Header cartItemCount={cart.reduce((c, i) => c + i.quantity, 0)} setView={setView} />
+      <Header
+        cartItemCount={cart.reduce((c, i) => c + i.quantity, 0)}
+        setView={setView}
+        user={user}
+        onOpenAuth={handleOpenAuth}
+        onLogout={handleLogout}
+      />
+
       <main>
         {view === 'products' ? (
           <>
@@ -88,10 +117,23 @@ function App() {
             <ProductGrid products={displayedProducts} onAddToCart={addToCart} />
           </>
         ) : (
+          // ✅ 結帳頁依舊「不要求登入」
           <CheckoutPage cart={cart} setCart={setCart} setView={setView} />
         )}
       </main>
+
       <Footer />
+
+      {/* 登入/註冊視窗 */}
+      {authOpen && (
+        <LoginRegister
+          onClose={() => setAuthOpen(false)}
+          onAuthed={(u) => {
+            setUser(u);
+            setAuthOpen(false);
+          }}
+        />
+      )}
     </div>
   );
 }
