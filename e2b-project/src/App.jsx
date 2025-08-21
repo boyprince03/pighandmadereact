@@ -17,6 +17,7 @@ import AdminProducts from './components/admin/AdminProducts';
 import AdminProductForm from './components/admin/AdminProductForm';
 import AdminOrders from './components/admin/AdminOrders';
 import AdminOrderDetail from './components/admin/AdminOrderDetail';
+import Setting from './components/admin/Setting'; // ← 新增：網站設定
 
 function App() {
   const [allProducts, setAllProducts] = useState([]);
@@ -27,7 +28,7 @@ function App() {
 
   // 檢視狀態
   // 前台：products / product / favorites / checkout / orders
-  // 後台：admin / admin-products / admin-product-edit / admin-orders / admin-order
+  // 後台：admin / admin-products / admin-product-edit / admin-orders / admin-order / admin-settings
   const [view, setView] = useState('products');
   const [selectedProductId, setSelectedProductId] = useState(null);
   const [adminProductId, setAdminProductId] = useState(null);
@@ -36,6 +37,13 @@ function App() {
   // auth
   const [user, setUser] = useState(null);
   const [authOpen, setAuthOpen] = useState(false);
+
+  // 設定（站台標題、Footer 內容）
+  const [settings, setSettings] = useState({
+    site_title: '豬豬手做',
+    footer_notes: [],
+    footer_links: [],
+  });
 
   // 我的最愛：localStorage 永續化
   const [favorites, setFavorites] = useState(() => {
@@ -64,7 +72,7 @@ function App() {
 
   const API_BASE = import.meta.env.VITE_API_BASE || '/api';
 
-  // 產品載入（前台）
+  // 讀取前台產品
   useEffect(() => {
     const load = async () => {
       try {
@@ -87,7 +95,7 @@ function App() {
     load();
   }, []);
 
-  // 啟動時嘗試帶 Cookie 查詢登入狀態
+  // 讀取登入狀態
   useEffect(() => {
     (async () => {
       try {
@@ -98,6 +106,27 @@ function App() {
         }
       } catch {}
     })();
+  }, []);
+
+  // 封裝設定載入，供首次與返回時重整使用
+  const loadSettings = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/settings`, { credentials: 'include' });
+      if (!res.ok) return;
+      const s = await res.json();
+      setSettings({
+        site_title: s?.site_title || '豬豬手做',
+        footer_notes: Array.isArray(s?.footer_notes) ? s.footer_notes : [],
+        footer_links: Array.isArray(s?.footer_links) ? s.footer_links : [],
+      });
+    } catch {
+      // 後端未完成或錯誤時使用預設值
+    }
+  };
+
+  // 首次載入網站設定（若後端尚未提供 /api/settings，將保留預設值）
+  useEffect(() => {
+    loadSettings();
   }, []);
 
   const categories = useMemo(() => {
@@ -154,6 +183,7 @@ function App() {
   return (
     <div className="bg-white font-sans">
       <Header
+        siteTitle={settings.site_title}
         cartItemCount={cart.reduce((c, i) => c + i.quantity, 0)}
         setView={setView}
         user={user}
@@ -227,6 +257,7 @@ function App() {
             onGoOrders={() => setView('admin-orders')}
             onOpenOrder={(id) => { setAdminOrderId(id); setView('admin-order'); }}
             onOpenProduct={(id) => { setAdminProductId(id); setView('admin-product-edit'); }}
+            onGoSettings={() => setView('admin-settings')}  // ← 新增：進入網站設定
           />
         )}
 
@@ -258,9 +289,19 @@ function App() {
             onBack={() => setView('admin-orders')}
           />
         )}
+
+        {/* ★ 新增：網站設定畫面 */}
+        {user?.isAdmin && view === 'admin-settings' && (
+          <Setting
+            onBack={async () => {
+              await loadSettings(); // 返回前重載設定，讓 Header / Footer 立即更新
+              setView('admin');
+            }}
+          />
+        )}
       </main>
 
-      <Footer />
+      <Footer notes={settings.footer_notes} links={settings.footer_links} />
 
       {/* 登入/註冊視窗 */}
       {authOpen && (

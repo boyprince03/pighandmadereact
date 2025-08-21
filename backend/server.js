@@ -478,6 +478,28 @@ app.delete('/api/admin/products/:id(\\d+)', ensureAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
+// ====== 設定 APIs ======
+app.get('/api/settings', (req, res) => {
+  const row = db.prepare(`SELECT site_title, footer_notes, footer_links FROM settings WHERE id=1`).get();
+  res.json({
+    site_title: row?.site_title || '豬豬手做',
+    footer_notes: row?.footer_notes ? JSON.parse(row.footer_notes) : [],
+    footer_links: row?.footer_links ? JSON.parse(row.footer_links) : []
+  });
+});
+
+app.put('/api/admin/settings', ensureAdmin, (req, res) => {
+  const { site_title, footer_notes, footer_links } = req.body || {};
+  db.prepare(`
+    UPDATE settings SET site_title=@title, footer_notes=@notes, footer_links=@links WHERE id=1
+  `).run({
+    title: site_title || '豬豬手做',
+    notes: JSON.stringify(footer_notes || []),
+    links: JSON.stringify(footer_links || [])
+  });
+  res.json({ ok: true });
+});
+
 // Excel 批量上傳
 const upload = multer({ storage: multer.memoryStorage() });
 app.post('/api/admin/products/bulk', ensureAdmin, upload.single('file'), (req, res) => {

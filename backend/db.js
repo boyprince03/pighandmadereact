@@ -64,6 +64,17 @@ export function initSchema() {
       FOREIGN KEY(order_id) REFERENCES orders(id) ON DELETE CASCADE,
       FOREIGN KEY(product_id) REFERENCES products(id)
     );
+    CREATE TABLE IF NOT EXISTS settings (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      site_title TEXT NOT NULL DEFAULT '豬豬手做',
+      footer_notes TEXT,   -- JSON array
+      footer_links TEXT    -- JSON array
+    );
+
+    INSERT INTO settings (id, site_title, footer_notes, footer_links)
+    VALUES (1, '豬豬手做', '[]', '[]')
+    ON CONFLICT(id) DO NOTHING;
+  
   `);
 
   // ===== Migration: add index on orders.order_no =====

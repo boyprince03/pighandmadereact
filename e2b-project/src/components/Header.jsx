@@ -1,14 +1,19 @@
 // /frontend/src/components/Header.jsx
 import React from 'react';
 
-const Header = ({ cartItemCount, setView, user, onOpenAuth, onLogout }) => {
+const Header = ({ siteTitle = '豬豬手做', cartItemCount, setView, user, onOpenAuth, onLogout }) => {
   return (
     <header className="bg-white shadow-md sticky top-0 z-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center py-4">
           <div className="flex-shrink-0">
-            <button onClick={() => setView('products')} className="text-2xl font-bold text-gray-900 focus:outline-none">
-              豬豬手做
+            <button
+              onClick={() => setView('products')}
+              className="text-2xl font-bold text-gray-900 focus:outline-none"
+              aria-label="回到首頁"
+              title="回到首頁"
+            >
+              {siteTitle}
             </button>
           </div>
 
@@ -42,7 +47,7 @@ const Header = ({ cartItemCount, setView, user, onOpenAuth, onLogout }) => {
             ) : (
               <div className="flex items-center space-x-3">
                 <span className="text-gray-700 text-sm">
-                  嗨，{user.name || user.email}{user.isAdmin ? '（管理員）':''}
+                  嗨，{user.name || user.email}{user.isAdmin ? '（管理員）' : ''}
                 </span>
                 <button
                   onClick={onLogout}
@@ -54,8 +59,12 @@ const Header = ({ cartItemCount, setView, user, onOpenAuth, onLogout }) => {
             )}
 
             {/* 購物車（前台） */}
-            <button onClick={() => setView('checkout')} className="relative text-gray-500 hover:text-gray-900 focus:outline-none">
-              <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <button
+              onClick={() => setView('checkout')}
+              className="relative text-gray-500 hover:text-gray-900 focus:outline-none"
+              aria-label="前往購物車"
+            >
+              <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4z" />
               </svg>
               {cartItemCount > 0 && (
