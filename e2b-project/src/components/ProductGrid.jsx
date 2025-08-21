@@ -1,15 +1,22 @@
-
+// /frontend/src/components/ProductGrid.jsx
 import React from 'react';
 import ProductCard from './ProductCard';
 
-const ProductGrid = ({ products, onAddToCart }) => {
+const ProductGrid = ({ products, onAddToCart, onOpenProduct, isFavorite, toggleFavorite }) => {
   return (
     <div className="bg-white">
       <div className="max-w-7xl mx-auto py-12 px-4 sm:px-6 lg:px-8">
         {products.length > 0 ? (
           <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-x-6 gap-y-10">
             {products.map((product) => (
-              <ProductCard key={product.id} product={product} onAddToCart={onAddToCart} />
+              <ProductCard
+                key={product.id}
+                product={product}
+                onAddToCart={onAddToCart}
+                onOpenProduct={onOpenProduct}
+                isFavorite={isFavorite(product.id)}
+                onToggleFavorite={() => toggleFavorite(product.id)}
+              />
             ))}
           </div>
         ) : (

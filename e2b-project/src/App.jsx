@@ -1,4 +1,4 @@
-// /frontend/src/App.jsx
+// App.jsx
 import { useEffect, useMemo, useState } from 'react';
 import Header from './components/Header';
 import Hero from './components/Hero';
@@ -8,6 +8,8 @@ import Footer from './components/Footer';
 import CheckoutPage from './components/CheckoutPage';
 import LoginRegister from './components/LoginRegister';
 import OrderLookup from './components/OrderLookup';
+import ProductDetail from './components/ProductDetail';
+import FavoritesPage from './components/FavoritesPage'; // ★ 新增
 
 function App() {
   const [allProducts, setAllProducts] = useState([]);
@@ -15,11 +17,39 @@ function App() {
   const [activeFilter, setActiveFilter] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [cart, setCart] = useState([]);
-  const [view, setView] = useState('products');
 
-  // 🔐 auth
+  // 檢視狀態：products(商品列表) / product(單品) / favorites(我的最愛) / checkout / orders
+  const [view, setView] = useState('products');
+  const [selectedProductId, setSelectedProductId] = useState(null);
+
+  // auth
   const [user, setUser] = useState(null);
   const [authOpen, setAuthOpen] = useState(false);
+
+  // 我的最愛：localStorage 永續化
+  const [favorites, setFavorites] = useState(() => {
+    try {
+      const raw = localStorage.getItem('favorites');
+      const arr = raw ? JSON.parse(raw) : [];
+      return new Set(arr);
+    } catch {
+      return new Set();
+    }
+  });
+  useEffect(() => {
+    localStorage.setItem('favorites', JSON.stringify(Array.from(favorites)));
+  }, [favorites]);
+
+  const isFavorite = (id) => favorites.has(Number(id));
+  const toggleFavorite = (id) => {
+    setFavorites(prev => {
+      const next = new Set(prev);
+      const key = Number(id);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
 
   const API_BASE = import.meta.env.VITE_API_BASE || '/api';
 
@@ -90,11 +120,23 @@ function App() {
     });
   };
 
-  const handleOpenAuth = () => setAuthOpen(true);
   const handleLogout = async () => {
     await fetch(`${API_BASE}/auth/logout`, { method: 'POST', credentials: 'include' });
     setUser(null);
   };
+
+  // 切到單品頁
+  const openProductDetail = (id) => {
+    setSelectedProductId(Number(id));
+    setView('product');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  // ★ 計算我的最愛清單
+  const favoriteProducts = useMemo(
+    () => allProducts.filter(p => favorites.has(Number(p.id))),
+    [allProducts, favorites]
+  );
 
   return (
     <div className="bg-white font-sans">
@@ -102,7 +144,7 @@ function App() {
         cartItemCount={cart.reduce((c, i) => c + i.quantity, 0)}
         setView={setView}
         user={user}
-        onOpenAuth={handleOpenAuth}
+        onOpenAuth={() => setAuthOpen(true)}
         onLogout={handleLogout}
       />
 
@@ -116,12 +158,51 @@ function App() {
               onSearch={handleSearch}
               categories={categories}
             />
-            <ProductGrid products={displayedProducts} onAddToCart={addToCart} />
+
+            {/* ★ 我的最愛清單按鈕（出現在商品頁工具列區塊） */}
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-2 flex justify-end">
+              <button
+                onClick={() => setView('favorites')}
+                className="inline-flex items-center gap-2 text-sm px-3 py-2 rounded-md border hover:bg-gray-50"
+                aria-label="查看我的最愛清單"
+              >
+                <span>❤️</span>
+                <span>我的最愛清單（{favoriteProducts.length}）</span>
+              </button>
+            </div>
+
+            <ProductGrid
+              products={displayedProducts}
+              onAddToCart={addToCart}
+              onOpenProduct={openProductDetail}
+              isFavorite={isFavorite}
+              toggleFavorite={toggleFavorite}
+            />
           </>
         )}
 
+        {view === 'favorites' && (
+          <FavoritesPage
+            products={favoriteProducts}
+            onBack={() => setView('products')}
+            onAddToCart={addToCart}
+            onOpenProduct={openProductDetail}
+            isFavorite={isFavorite}
+            toggleFavorite={toggleFavorite}
+          />
+        )}
+
+        {view === 'product' && selectedProductId != null && (
+          <ProductDetail
+            productId={selectedProductId}
+            onBack={() => setView('products')}
+            onAddToCart={addToCart}
+            isFavorite={isFavorite}
+            toggleFavorite={toggleFavorite}
+          />
+        )}
+
         {view === 'checkout' && (
-          // ✅ 結帳頁依舊「不要求登入」
           <CheckoutPage cart={cart} setCart={setCart} setView={setView} />
         )}
 
