@@ -1,4 +1,4 @@
-// frontend/src/App.jsx
+// /frontend/src/App.jsx
 import { useEffect, useMemo, useState } from 'react';
 import Header from './components/Header';
 import Hero from './components/Hero';
@@ -121,6 +121,7 @@ function App() {
         )}
 
         {view === 'checkout' && (
+          // ✅ 結帳頁依舊「不要求登入」
           <CheckoutPage cart={cart} setCart={setCart} setView={setView} />
         )}
 
