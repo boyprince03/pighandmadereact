@@ -11,6 +11,9 @@ import multer from 'multer';
 import xlsx from 'xlsx';
 import { db, initSchema } from './db.js';
 
+// ★ 新增：檔案系統與路徑（上傳用）
+import fs from 'fs';
+import path from 'path';
 
 dotenv.config();
 initSchema();
@@ -25,6 +28,11 @@ app.use(cookieParser());
 // 允許前端 Cookie
 const FRONT_ORIGIN = process.env.FRONT_ORIGIN || 'http://localhost:5173';
 app.use(cors({ origin: FRONT_ORIGIN, credentials: true }));
+
+// ★ 新增：上傳資料夾與靜態服務
+const uploadDir = path.join(process.cwd(), 'uploads');
+if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+app.use('/uploads', express.static(uploadDir));
 
 const TWD = new Intl.NumberFormat('zh-TW', { style: 'currency', currency: 'TWD' });
 const priceToDisplay = cents => TWD.format((cents || 0) / 100);
@@ -43,7 +51,7 @@ function toHalfWidthDigitsAndSeparators(s) {
     .replace(/[﹣－—–‒―～〜]/g, '-');
 }
 
-// 寬鬆解析訂單編號：20250821-0001 / 2025-08-21-1 / 2025/08/21-1 / ２０２５／０８／２１－１ / 202508210001
+// 寬鬆解析訂單編號
 function parseOrderNo(raw) {
   if (!raw) return null;
   let s = toHalfWidthDigitsAndSeparators(String(raw).trim())
@@ -317,7 +325,27 @@ function fetchOrderAndItems(id) {
 
 // 確認權限
 app.get('/api/admin/ping', ensureAdmin, (req, res) => res.json({ ok: true }));
+// ====== 設定 APIs ======
+app.get('/api/settings', (req, res) => {
+  const row = db.prepare(`SELECT site_title, footer_notes, footer_links FROM settings WHERE id=1`).get();
+  res.json({
+    site_title: row?.site_title || '豬豬手做',
+    footer_notes: row?.footer_notes ? JSON.parse(row.footer_notes) : [],
+    footer_links: row?.footer_links ? JSON.parse(row.footer_links) : []
+  });
+});
 
+app.put('/api/admin/settings', ensureAdmin, (req, res) => {
+  const { site_title, footer_notes, footer_links } = req.body || {};
+  db.prepare(`
+    UPDATE settings SET site_title=@title, footer_notes=@notes, footer_links=@links WHERE id=1
+  `).run({
+    title: site_title || '豬豬手做',
+    notes: JSON.stringify(footer_notes || []),
+    links: JSON.stringify(footer_links || [])
+  });
+  res.json({ ok: true });
+});
 // (A) 儀表板/報表
 app.get('/api/admin/summary', ensureAdmin, (req, res) => {
   const latestPending = db.prepare(`
@@ -435,6 +463,33 @@ app.get('/api/admin/products/:id(\\d+)', ensureAdmin, (req, res) => {
   res.json({ ...p, price: p.price_cents/100, priceText: priceToDisplay(p.price_cents) });
 });
 
+// ★★★★★ 新增：圖片上傳 API（表單欄位 name = image）
+const imageStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, uploadDir),
+  filename: (_req, file, cb) => {
+    const ext = path.extname(file.originalname || '').toLowerCase();
+    const safeExt = ['.jpg','.jpeg','.png','.webp','.gif'].includes(ext) ? ext : '.jpg';
+    const name = `img_${Date.now()}_${Math.random().toString(16).slice(2)}${safeExt}`;
+    cb(null, name);
+  }
+});
+const imageUpload = multer({
+  storage: imageStorage,
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+  fileFilter: (_req, file, cb) => {
+    if (/^image\/(jpeg|png|webp|gif)$/.test(file.mimetype)) return cb(null, true);
+    cb(new Error('僅允許上傳圖片（jpg/png/webp/gif）'));
+  }
+});
+app.post('/api/admin/upload', ensureAdmin, imageUpload.single('image'), (req, res) => {
+  const filename = req.file?.filename;
+  if (!filename) return res.status(400).json({ error: '未接收到檔案' });
+  const base = `${req.protocol}://${req.get('host')}`;
+  const url = `${base}/uploads/${filename}`; // 回傳完整可用 URL
+  res.json({ url, filename });
+});
+
+// 產品建立/更新（原樣）：
 app.post('/api/admin/products', ensureAdmin, (req, res) => {
   const { id, name, price, price_cents, category, image } = req.body || {};
   if (!name) return res.status(400).json({ error: 'name 必填' });
@@ -473,34 +528,7 @@ app.put('/api/admin/products/:id(\\d+)', ensureAdmin, (req, res) => {
   res.json({ ...p, price: p.price_cents/100, priceText: priceToDisplay(p.price_cents) });
 });
 
-app.delete('/api/admin/products/:id(\\d+)', ensureAdmin, (req, res) => {
-  db.prepare(`DELETE FROM products WHERE id=?`).run(req.params.id);
-  res.json({ ok: true });
-});
-
-// ====== 設定 APIs ======
-app.get('/api/settings', (req, res) => {
-  const row = db.prepare(`SELECT site_title, footer_notes, footer_links FROM settings WHERE id=1`).get();
-  res.json({
-    site_title: row?.site_title || '豬豬手做',
-    footer_notes: row?.footer_notes ? JSON.parse(row.footer_notes) : [],
-    footer_links: row?.footer_links ? JSON.parse(row.footer_links) : []
-  });
-});
-
-app.put('/api/admin/settings', ensureAdmin, (req, res) => {
-  const { site_title, footer_notes, footer_links } = req.body || {};
-  db.prepare(`
-    UPDATE settings SET site_title=@title, footer_notes=@notes, footer_links=@links WHERE id=1
-  `).run({
-    title: site_title || '豬豬手做',
-    notes: JSON.stringify(footer_notes || []),
-    links: JSON.stringify(footer_links || [])
-  });
-  res.json({ ok: true });
-});
-
-// Excel 批量上傳
+// Excel 批量上傳（原本就有的—仍保留用 memoryStorage）:
 const upload = multer({ storage: multer.memoryStorage() });
 app.post('/api/admin/products/bulk', ensureAdmin, upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: '請上傳 Excel/CSV 檔' });
