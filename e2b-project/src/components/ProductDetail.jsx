@@ -1,18 +1,8 @@
-// /frontend/src/components/ProductDetail.jsx
+// /src/components/ProductDetail.jsx
 import React, { useEffect, useState } from 'react';
+import HeartButton from './HeartButton';
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api';
-
-// 愛心圖示（沿用）
-const HeartIcon = ({ filled = false, className = '' }) => (
-  <svg viewBox="0 0 24 24" className={className} aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
-    {filled ? (
-      <path d="M12.001 21s-7.16-4.534-9.833-8.39C-0.195 9.51 1.28 5.5 4.97 4.64c1.973-.462 4.02.266 5.23 1.86 1.21-1.594 3.258-2.322 5.23-1.86 3.69.86 5.166 4.87 2.803 7.97C19.161 16.466 12.001 21 12.001 21z" fill="currentColor" />
-    ) : (
-      <path d="M12.001 21s-7.16-4.534-9.833-8.39C-0.195 9.51 1.28 5.5 4.97 4.64c1.973-.462 4.02.266 5.23 1.86 1.21-1.594 3.258-2.322 5.23-1.86 3.69.86 5.166 4.87 2.803 7.97C19.161 16.466 12.001 21 12.001 21z" fill="none" stroke="currentColor" strokeWidth="2" />
-    )}
-  </svg>
-);
 
 export default function ProductDetail({ productId, onBack, onAddToCart, isFavorite, toggleFavorite }) {
   const [product, setProduct] = useState(null);
@@ -65,17 +55,14 @@ export default function ProductDetail({ productId, onBack, onAddToCart, isFavori
                   alt={product.name}
                   className="w-full h-full object-cover"
                 />
-                {/* 單品頁的愛心按鈕 */}
-                <button
-                  type="button"
-                  onClick={() => toggleFavorite?.(product.id)}
-                  aria-label={isFavorite(product.id) ? '移除我的最愛' : '加入我的最愛'}
-                  className={`absolute top-3 right-3 p-3 rounded-full shadow-sm transition ${
-                    isFavorite(product.id) ? 'bg-rose-500 text-white' : 'bg-white text-gray-700 hover:text-rose-500'
-                  }`}
-                >
-                  <HeartIcon filled={isFavorite(product.id)} className="w-6 h-6" />
-                </button>
+                {/* 單品頁的愛心按鈕（右上角） */}
+                <div className="absolute top-3 right-3">
+                  <HeartButton
+                    active={!!isFavorite(product.id)}
+                    onToggle={() => toggleFavorite?.(product.id)}
+                    size="md"
+                  />
+                </div>
               </div>
 
               <div className="p-6 md:p-8 flex flex-col">
@@ -90,7 +77,6 @@ export default function ProductDetail({ productId, onBack, onAddToCart, isFavori
                   {product.priceText ?? `NT$${product.price}`}
                 </div>
 
-                {/* 可放描述（目前後端沒有欄位，示意段落） */}
                 <p className="mt-6 text-gray-700 leading-relaxed">
                   精選商品，品質保證。此頁為單獨商品介紹頁示範，價格、分類與圖片皆取自後端 API。
                 </p>
