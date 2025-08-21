@@ -1,11 +1,18 @@
 // /frontend/src/components/OrderLookup.jsx
 import React, { useState } from 'react';
 
-const nf = new Intl.NumberFormat('zh-TW', { style: 'currency', currency: 'TWD' });
 const API_BASE = import.meta.env.VITE_API_BASE || '/api';
 
+// 全形數字/符號 -> 半形
+function toHalfWidthAll(s) {
+  return String(s ?? '')
+    .replace(/[０-９]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0)) // ０-９ -> 0-9
+    .replace(/[／]/g, '/')  // 全形斜線 -> /
+    .replace(/[﹣－—–‒―～〜]/g, '-'); // 各式破折號/波浪線 -> -
+}
+
 export default function OrderLookup({ setView }) {
-  const [orderId, setOrderId] = useState('');
+  const [orderKey, setOrderKey] = useState(''); // 可輸入「ID」或「訂單編號」
   const [loading, setLoading] = useState(false);
   const [order, setOrder] = useState(null);
   const [err, setErr] = useState('');
@@ -14,16 +21,25 @@ export default function OrderLookup({ setView }) {
     e?.preventDefault?.();
     setErr('');
     setOrder(null);
-    const id = String(orderId || '').trim();
-    if (!id) {
-      setErr('請輸入訂單編號');
+
+    let raw = String(orderKey || '').trim();
+    if (!raw) {
+      setErr('請輸入訂單編號或ID');
       return;
     }
+
+    const normalized = toHalfWidthAll(raw);
+    const isPureId = /^\d+$/.test(normalized);
+
+    const url = isPureId
+      ? `${API_BASE}/orders/${encodeURIComponent(normalized)}`
+      : `${API_BASE}/orders/lookup?order_no=${encodeURIComponent(normalized)}`;
+
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/orders/${encodeURIComponent(id)}`, { credentials: 'include' });
+      const res = await fetch(url, { credentials: 'include' });
       if (!res.ok) {
-        const j = await res.json().catch(()=> ({}));
+        const j = await res.json().catch(() => ({}));
         throw new Error(j.error || '查無此訂單');
       }
       const data = await res.json();
@@ -53,11 +69,11 @@ export default function OrderLookup({ setView }) {
         <form onSubmit={onSearch} className="bg-white p-4 rounded-xl shadow flex flex-col sm:flex-row gap-3">
           <input
             type="text"
-            inputMode="numeric"
-            placeholder="請輸入訂單編號（例如：123）"
+            inputMode="text"
+            placeholder="輸入訂單編號（例：20250821-0001、2025/08/21-1）或純數字ID"
             className="flex-1 border rounded-md px-3 py-2"
-            value={orderId}
-            onChange={(e) => setOrderId(e.target.value)}
+            value={orderKey}
+            onChange={(e) => setOrderKey(e.target.value)}
           />
           <button
             type="submit"
@@ -78,7 +94,9 @@ export default function OrderLookup({ setView }) {
           <div className="mt-8 space-y-6">
             <div className="bg-white p-6 rounded-xl shadow">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                <h2 className="text-lg font-semibold">訂單編號：#{order.id}</h2>
+                <h2 className="text-lg font-semibold">
+                  #訂單編號：{order.orderNo ? order.orderNo : `#${order.id}`}
+                </h2>
                 <p className="text-sm text-gray-500">建立時間：{order.created_at}</p>
               </div>
 
@@ -115,8 +133,8 @@ export default function OrderLookup({ setView }) {
             <div className="bg-white p-6 rounded-xl shadow">
               <h3 className="font-medium text-gray-900 mb-4">商品項目</h3>
               <ul className="divide-y">
-                {order.items.map((it) => (
-                  <li key={it.product_id} className="py-4 flex gap-4 items-center">
+                {order.items.map((it, idx) => (
+                  <li key={`${it.product_id}-${idx}`} className="py-4 flex gap-4 items-center">
                     <img src={it.image} alt={it.name} className="w-16 h-16 rounded-md object-cover" />
                     <div className="flex-1">
                       <div className="font-medium text-gray-900">{it.name}</div>
