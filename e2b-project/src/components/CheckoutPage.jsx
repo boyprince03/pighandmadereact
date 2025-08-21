@@ -1,3 +1,4 @@
+// frontend/src/components/CheckoutPage.jsx
 import React, { useMemo, useState } from 'react';
 
 const nf = new Intl.NumberFormat('zh-TW', { style: 'currency', currency: 'TWD' });
@@ -8,7 +9,7 @@ const CheckoutPage = ({ cart, setCart, setView }) => {
 
   const subtotal = useMemo(() => {
     return cart.reduce((total, item) => {
-      const price = Number(item.price); // 後端提供數字
+      const price = Number(item.price);
       return total + price * item.quantity;
     }, 0);
   }, [cart]);
@@ -45,7 +46,7 @@ const CheckoutPage = ({ cart, setCart, setView }) => {
     }
 
     const data = await res.json();
-    alert(`下單成功！訂單編號 #${data.id}\n總計：${data.totalText}`);
+    alert(`下單成功！\n訂單編號：${data.orderNo}\n總計：${data.totalText}`);
     setCart([]);
     setView('products');
   };
