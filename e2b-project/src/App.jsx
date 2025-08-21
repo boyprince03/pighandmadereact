@@ -1,4 +1,4 @@
-// App.jsx
+// /frontend/src/App.jsx
 import { useEffect, useMemo, useState } from 'react';
 import Header from './components/Header';
 import Hero from './components/Hero';
@@ -9,7 +9,14 @@ import CheckoutPage from './components/CheckoutPage';
 import LoginRegister from './components/LoginRegister';
 import OrderLookup from './components/OrderLookup';
 import ProductDetail from './components/ProductDetail';
-import FavoritesPage from './components/FavoritesPage'; // ★ 新增
+import FavoritesPage from './components/FavoritesPage';
+
+// ★ Admin 頁面
+import AdminDashboard from './components/admin/AdminDashboard';
+import AdminProducts from './components/admin/AdminProducts';
+import AdminProductForm from './components/admin/AdminProductForm';
+import AdminOrders from './components/admin/AdminOrders';
+import AdminOrderDetail from './components/admin/AdminOrderDetail';
 
 function App() {
   const [allProducts, setAllProducts] = useState([]);
@@ -18,9 +25,13 @@ function App() {
   const [searchTerm, setSearchTerm] = useState('');
   const [cart, setCart] = useState([]);
 
-  // 檢視狀態：products(商品列表) / product(單品) / favorites(我的最愛) / checkout / orders
+  // 檢視狀態
+  // 前台：products / product / favorites / checkout / orders
+  // 後台：admin / admin-products / admin-product-edit / admin-orders / admin-order
   const [view, setView] = useState('products');
   const [selectedProductId, setSelectedProductId] = useState(null);
+  const [adminProductId, setAdminProductId] = useState(null);
+  const [adminOrderId, setAdminOrderId] = useState(null);
 
   // auth
   const [user, setUser] = useState(null);
@@ -53,7 +64,7 @@ function App() {
 
   const API_BASE = import.meta.env.VITE_API_BASE || '/api';
 
-  // 產品載入
+  // 產品載入（前台）
   useEffect(() => {
     const load = async () => {
       try {
@@ -83,7 +94,7 @@ function App() {
         const res = await fetch(`${API_BASE}/auth/profile`, { credentials: 'include' });
         if (res.ok) {
           const u = await res.json();
-          setUser(u);
+          setUser(u); // u 內含 isAdmin
         }
       } catch {}
     })();
@@ -123,21 +134,23 @@ function App() {
   const handleLogout = async () => {
     await fetch(`${API_BASE}/auth/logout`, { method: 'POST', credentials: 'include' });
     setUser(null);
+    setView('products');
   };
 
-  // 切到單品頁
+  // 切到單品頁（前台）
   const openProductDetail = (id) => {
     setSelectedProductId(Number(id));
     setView('product');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // ★ 計算我的最愛清單
+  // 我的最愛清單
   const favoriteProducts = useMemo(
     () => allProducts.filter(p => favorites.has(Number(p.id))),
     [allProducts, favorites]
   );
 
+  // ========== UI ==========
   return (
     <div className="bg-white font-sans">
       <Header
@@ -158,8 +171,6 @@ function App() {
               onSearch={handleSearch}
               categories={categories}
             />
-
-            {/* ★ 我的最愛清單按鈕（出現在商品頁工具列區塊） */}
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-2 flex justify-end">
               <button
                 onClick={() => setView('favorites')}
@@ -170,7 +181,6 @@ function App() {
                 <span>我的最愛清單（{favoriteProducts.length}）</span>
               </button>
             </div>
-
             <ProductGrid
               products={displayedProducts}
               onAddToCart={addToCart}
@@ -208,6 +218,45 @@ function App() {
 
         {view === 'orders' && (
           <OrderLookup setView={setView} />
+        )}
+
+        {/* ===== 後台 ===== */}
+        {user?.isAdmin && view === 'admin' && (
+          <AdminDashboard
+            onGoProducts={() => setView('admin-products')}
+            onGoOrders={() => setView('admin-orders')}
+            onOpenOrder={(id) => { setAdminOrderId(id); setView('admin-order'); }}
+            onOpenProduct={(id) => { setAdminProductId(id); setView('admin-product-edit'); }}
+          />
+        )}
+
+        {user?.isAdmin && view === 'admin-products' && (
+          <AdminProducts
+            onBack={() => setView('admin')}
+            onCreate={() => { setAdminProductId('new'); setView('admin-product-edit'); }}
+            onEdit={(id) => { setAdminProductId(id); setView('admin-product-edit'); }}
+          />
+        )}
+
+        {user?.isAdmin && view === 'admin-product-edit' && (
+          <AdminProductForm
+            productId={adminProductId}
+            onBack={() => setView('admin-products')}
+          />
+        )}
+
+        {user?.isAdmin && view === 'admin-orders' && (
+          <AdminOrders
+            onBack={() => setView('admin')}
+            onOpen={(id) => { setAdminOrderId(id); setView('admin-order'); }}
+          />
+        )}
+
+        {user?.isAdmin && view === 'admin-order' && (
+          <AdminOrderDetail
+            orderId={adminOrderId}
+            onBack={() => setView('admin-orders')}
+          />
         )}
       </main>
 

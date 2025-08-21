@@ -7,7 +7,10 @@ import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import dotenv from 'dotenv';
 import { OAuth2Client } from 'google-auth-library';
+import multer from 'multer';
+import xlsx from 'xlsx';
 import { db, initSchema } from './db.js';
+
 
 dotenv.config();
 initSchema();
@@ -35,19 +38,18 @@ function formatOrderNo(id, createdAt) {
 // 全形 => 半形（數字 + 常見分隔符號）
 function toHalfWidthDigitsAndSeparators(s) {
   return String(s ?? '')
-    .replace(/[０-９]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0)) // 全形數字 -> 半形
-    .replace(/[／]/g, '/')  // 全形斜線 -> /
-    .replace(/[﹣－—–‒―～〜]/g, '-'); // 各式破折號/波浪線 -> -
+    .replace(/[０-９]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0))
+    .replace(/[／]/g, '/')
+    .replace(/[﹣－—–‒―～〜]/g, '-');
 }
 
-// 寬鬆解析：20250821-0001 / 2025-08-21-1 / 2025/08/21-1 / ２０２５／０８／２１－１ / 202508210001 都可
+// 寬鬆解析訂單編號：20250821-0001 / 2025-08-21-1 / 2025/08/21-1 / ２０２５／０８／２１－１ / 202508210001
 function parseOrderNo(raw) {
   if (!raw) return null;
   let s = toHalfWidthDigitsAndSeparators(String(raw).trim())
-    .replace(/[.\s]/g, '')   // 去掉 . 與空白
-    .replace(/[\/]/g, '-')   // 斜線統一成 -
-    .replace(/(\d{4})-(\d{2})-(\d{2})/, '$1$2$3'); // yyyy-mm-dd -> yyyymmdd
-
+    .replace(/[.\s]/g, '')
+    .replace(/[\/]/g, '-')
+    .replace(/(\d{4})-(\d{2})-(\d{2})/, '$1$2$3');
   const m = s.match(/^(\d{8})(?:-?)(\d{1,})$/);
   if (!m) return null;
   const id = parseInt(m[2], 10);
@@ -55,11 +57,19 @@ function parseOrderNo(raw) {
   return { ymd: m[1], id };
 }
 
-// ====== JWT / Google 設定（略同原本） ======
+// ====== JWT / Google 設定 ======
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change';
 const COOKIE_OPTS = { httpOnly: true, sameSite: 'lax', secure: false, path: '/' };
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID || '';
 const googleClient = GOOGLE_CLIENT_ID ? new OAuth2Client(GOOGLE_CLIENT_ID) : null;
+
+// Admin 白名單
+const ADMIN_EMAILS = String(process.env.ADMIN_EMAILS || '')
+  .split(',')
+  .map(s => s.trim().toLowerCase())
+  .filter(Boolean);
+
+const isAdminEmail = (email) => ADMIN_EMAILS.includes(String(email || '').toLowerCase());
 
 const signToken = (user) =>
   jwt.sign({ id: user.id, email: user.email, name: user.name, provider: user.provider }, JWT_SECRET, { expiresIn: '7d' });
@@ -85,10 +95,25 @@ function tryGetUser(req) {
   }
 }
 
+function ensureAuthed(req, res, next) {
+  const u = tryGetUser(req);
+  if (!u) return res.status(401).json({ error: '未登入' });
+  req.user = u;
+  next();
+}
+
+function ensureAdmin(req, res, next) {
+  const u = tryGetUser(req);
+  if (!u) return res.status(401).json({ error: '未登入' });
+  if (!isAdminEmail(u.email)) return res.status(403).json({ error: '無權限' });
+  req.user = u;
+  next();
+}
+
 // ====== Health ======
 app.get('/api/health', (req, res) => res.json({ ok: true }));
 
-// ====== Auth APIs（略） ======
+// ====== Auth APIs ======
 app.post('/api/auth/register', (req, res) => {
   const { name, email, password } = req.body || {};
   if (!email || !password) return res.status(400).json({ error: '缺少 email 或 password' });
@@ -100,7 +125,7 @@ app.post('/api/auth/register', (req, res) => {
   const user = getUserByIdStmt.get(info.lastInsertRowid);
   const token = signToken(user);
   res.cookie('token', token, { ...COOKIE_OPTS });
-  res.json(user);
+  res.json({ ...user, isAdmin: isAdminEmail(user.email) });
 });
 
 app.post('/api/auth/login', (req, res) => {
@@ -114,7 +139,7 @@ app.post('/api/auth/login', (req, res) => {
   const user = getUserByIdStmt.get(found.id);
   const token = signToken(user);
   res.cookie('token', token, { ...COOKIE_OPTS });
-  res.json(user);
+  res.json({ ...user, isAdmin: isAdminEmail(user.email) });
 });
 
 app.post('/api/auth/google', async (req, res) => {
@@ -135,7 +160,7 @@ app.post('/api/auth/google', async (req, res) => {
     }
     const token = signToken(found);
     res.cookie('token', token, { ...COOKIE_OPTS });
-    res.json(found);
+    res.json({ ...found, isAdmin: isAdminEmail(found.email) });
   } catch (e) {
     console.error(e);
     res.status(400).json({ error: 'Google 驗證失敗' });
@@ -145,7 +170,7 @@ app.post('/api/auth/google', async (req, res) => {
 app.get('/api/auth/profile', (req, res) => {
   const user = tryGetUser(req);
   if (!user) return res.status(401).json({ error: '未登入' });
-  res.json(user);
+  res.json({ ...user, isAdmin: isAdminEmail(user.email) });
 });
 
 app.post('/api/auth/logout', (req, res) => {
@@ -153,18 +178,16 @@ app.post('/api/auth/logout', (req, res) => {
   res.json({ ok: true });
 });
 
-// ====== 產品 APIs ======
+// ====== 產品 APIs（前台） ======
 app.get('/api/products', (req, res) => {
   const { category, q } = req.query;
   let sql = `SELECT id, name, price_cents, category, image FROM products`;
   const where = [];
   const params = {};
-
   if (category && category !== 'all') { where.push(`category = @category`); params.category = category; }
   if (q && q.trim()) { where.push(`LOWER(name) LIKE '%' || LOWER(@q) || '%'`); params.q = q.trim(); }
   if (where.length) sql += ` WHERE ` + where.join(' AND ');
   sql += ` ORDER BY id ASC`;
-
   const rows = db.prepare(sql).all(params);
   res.json(rows.map(r => ({ ...r, price: r.price_cents / 100, priceText: priceToDisplay(r.price_cents) })));
 });
@@ -175,30 +198,20 @@ app.get('/api/products/:id', (req, res) => {
   res.json({ ...row, price: row.price_cents / 100, priceText: priceToDisplay(row.price_cents) });
 });
 
-// ====== 訂單 ======
-
-// 👉 先放「lookup」再放「:id」，避免被 :id 把 /lookup 吃掉
-/** 以訂單編號查詢
- * GET /api/orders/lookup?order_no=20250821-0001
- */
+// ====== 訂單（前台） ======
+// 先放 lookup 再放 :id，避免 :id 吃掉 /lookup
 app.get('/api/orders/lookup', (req, res) => {
   const raw = req.query.order_no ?? req.query.orderNo;
   if (!raw) return res.status(400).json({ error: '請提供 order_no' });
-
   const parsed = parseOrderNo(raw);
   if (!parsed) return res.status(400).json({ error: '訂單編號格式錯誤' });
-
   const order = db.prepare(`SELECT id, created_at FROM orders WHERE id = ?`).get(parsed.id);
   if (!order) return res.status(404).json({ error: '查無此訂單' });
-
-  // 比對日期（YYYYMMDD 必須一致）
   const ymd = order.created_at.slice(0, 10).replace(/-/g, '');
   if (ymd !== parsed.ymd) return res.status(404).json({ error: '訂單編號不正確' });
-
   return res.json(fetchOrderAndItems(order.id));
 });
 
-/** 以 ID 取單（只接受數字） */
 app.get('/api/orders/:id(\\d+)', (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!id) return res.status(400).json({ error: '訂單編號格式錯誤' });
@@ -207,7 +220,6 @@ app.get('/api/orders/:id(\\d+)', (req, res) => {
   res.json(data);
 });
 
-// 建單
 app.post('/api/orders', (req, res) => {
   const { customer, items } = req.body || {};
   if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ error: 'Cart is empty' });
@@ -269,7 +281,7 @@ app.post('/api/orders', (req, res) => {
 function fetchOrderAndItems(id) {
   const order = db.prepare(`
     SELECT id, created_at, subtotal_cents, shipping_cents, total_cents,
-           customer_name, customer_phone, shipping_address
+           customer_name, customer_phone, shipping_address, status
     FROM orders WHERE id = ?
   `).get(id);
   if (!order) return null;
@@ -289,6 +301,7 @@ function fetchOrderAndItems(id) {
     id: order.id,
     orderNo: formatOrderNo(order.id, order.created_at),
     created_at: order.created_at,
+    status: order.status,
     subtotal_cents: order.subtotal_cents,
     shipping_cents: order.shipping_cents,
     total_cents: order.total_cents,
@@ -299,6 +312,275 @@ function fetchOrderAndItems(id) {
     items
   };
 }
+
+// ===================== Admin 區 =====================
+
+// 確認權限
+app.get('/api/admin/ping', ensureAdmin, (req, res) => res.json({ ok: true }));
+
+// (A) 儀表板/報表
+app.get('/api/admin/summary', ensureAdmin, (req, res) => {
+  const latestPending = db.prepare(`
+    SELECT id, created_at, total_cents, customer_name, status
+    FROM orders
+    WHERE status='pending'
+    ORDER BY created_at DESC
+    LIMIT 5
+  `).all();
+
+  const topProducts30d = db.prepare(`
+    SELECT p.id, p.name, SUM(oi.quantity) AS qty, SUM(oi.quantity * oi.unit_price_cents) AS rev_cents
+    FROM order_items oi
+    JOIN orders o ON o.id = oi.order_id
+    JOIN products p ON p.id = oi.product_id
+    WHERE o.created_at >= datetime('now','-30 days') AND o.status <> 'canceled'
+    GROUP BY p.id, p.name
+    ORDER BY qty DESC
+    LIMIT 5
+  `).all();
+
+  const latestProducts = db.prepare(`
+    SELECT id, name, price_cents, category, image
+    FROM products
+    ORDER BY id DESC
+    LIMIT 5
+  `).all();
+
+  res.json({
+    latestPending: latestPending.map(o => ({
+      ...o,
+      totalText: priceToDisplay(o.total_cents)
+    })),
+    topProducts30d: topProducts30d.map(r => ({
+      ...r,
+      revText: priceToDisplay(r.rev_cents)
+    })),
+    latestProducts: latestProducts.map(p => ({
+      ...p,
+      price: p.price_cents / 100,
+      priceText: priceToDisplay(p.price_cents)
+    }))
+  });
+});
+
+app.get('/api/admin/metrics/monthly', ensureAdmin, (req, res) => {
+  const rows = db.prepare(`
+    SELECT strftime('%Y-%m', created_at) AS ym,
+           COUNT(*) AS orders_count,
+           SUM(total_cents) AS revenue_cents
+    FROM orders
+    WHERE created_at >= date('now','-12 months') AND status <> 'canceled'
+    GROUP BY ym
+    ORDER BY ym ASC
+  `).all();
+  res.json(rows.map(r => ({
+    ...r,
+    revenueText: priceToDisplay(r.revenue_cents || 0)
+  })));
+});
+
+// 產生 Excel 報表（月份彙總 + 熱銷）
+app.get('/api/admin/reports/monthly.xlsx', ensureAdmin, (req, res) => {
+  const ymRows = db.prepare(`
+    SELECT strftime('%Y-%m', created_at) AS ym,
+           COUNT(*) AS orders_count,
+           SUM(total_cents) AS revenue_cents
+    FROM orders
+    WHERE created_at >= date('now','-12 months') AND status <> 'canceled'
+    GROUP BY ym
+    ORDER BY ym ASC
+  `).all();
+
+  const topRows = db.prepare(`
+    SELECT p.id, p.name, SUM(oi.quantity) AS qty, SUM(oi.quantity * oi.unit_price_cents) AS rev_cents
+    FROM order_items oi
+    JOIN orders o ON o.id = oi.order_id
+    JOIN products p ON p.id = oi.product_id
+    WHERE o.created_at >= date('now','-12 months') AND o.status <> 'canceled'
+    GROUP BY p.id, p.name
+    ORDER BY qty DESC
+  `).all();
+
+  const wb = xlsx.utils.book_new();
+  const s1 = xlsx.utils.aoa_to_sheet([['Month','Orders','Revenue(TWD)'],
+    ...ymRows.map(r => [r.ym, r.orders_count, (r.revenue_cents||0)/100])
+  ]);
+  const s2 = xlsx.utils.aoa_to_sheet([['ProductID','Name','Qty','Revenue(TWD)'],
+    ...topRows.map(r => [r.id, r.name, r.qty, (r.rev_cents||0)/100])
+  ]);
+  xlsx.utils.book_append_sheet(wb, s1, 'Monthly');
+  xlsx.utils.book_append_sheet(wb, s2, 'TopProducts');
+
+  const buf = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' });
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename="monthly-report.xlsx"`);
+  res.send(buf);
+});
+
+// (B) 商品 CRUD + 批量上傳
+app.get('/api/admin/products', ensureAdmin, (req, res) => {
+  const limit = Math.max(1, Math.min(1000, parseInt(req.query.limit || '100', 10)));
+  const rows = db.prepare(`
+    SELECT id, name, price_cents, category, image
+    FROM products
+    ORDER BY id DESC
+    LIMIT ?
+  `).all(limit);
+  res.json(rows.map(r => ({ ...r, price: r.price_cents/100, priceText: priceToDisplay(r.price_cents) })));
+});
+
+app.get('/api/admin/products/:id(\\d+)', ensureAdmin, (req, res) => {
+  const p = db.prepare(`SELECT id, name, price_cents, category, image FROM products WHERE id = ?`).get(req.params.id);
+  if (!p) return res.status(404).json({ error: 'Not found' });
+  res.json({ ...p, price: p.price_cents/100, priceText: priceToDisplay(p.price_cents) });
+});
+
+app.post('/api/admin/products', ensureAdmin, (req, res) => {
+  const { id, name, price, price_cents, category, image } = req.body || {};
+  if (!name) return res.status(400).json({ error: 'name 必填' });
+  if (!category) return res.status(400).json({ error: 'category 必填' });
+
+  const cents = Number.isFinite(price_cents) ? price_cents : Math.round(Number(price || 0) * 100);
+  if (!Number.isFinite(cents) || cents < 0) return res.status(400).json({ error: '價格不正確' });
+
+  let finalId = parseInt(id, 10);
+  if (!Number.isFinite(finalId)) {
+    const max = db.prepare(`SELECT COALESCE(MAX(id),0) AS max FROM products`).get().max;
+    finalId = max + 1;
+  }
+
+  db.prepare(`
+    INSERT INTO products (id, name, price_cents, category, image)
+    VALUES (@id, @name, @price_cents, @category, @image)
+  `).run({ id: finalId, name, price_cents: cents, category, image: image || null });
+
+  const p = db.prepare(`SELECT id, name, price_cents, category, image FROM products WHERE id=?`).get(finalId);
+  res.status(201).json({ ...p, price: p.price_cents/100, priceText: priceToDisplay(p.price_cents) });
+});
+
+app.put('/api/admin/products/:id(\\d+)', ensureAdmin, (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const { name, price, price_cents, category, image } = req.body || {};
+  const cents = Number.isFinite(price_cents) ? price_cents : Math.round(Number(price || 0) * 100);
+  if (!Number.isFinite(cents) || cents < 0) return res.status(400).json({ error: '價格不正確' });
+  db.prepare(`
+    UPDATE products SET
+      name=@name, price_cents=@price_cents, category=@category, image=@image
+    WHERE id=@id
+  `).run({ id, name, price_cents: cents, category, image: image || null });
+  const p = db.prepare(`SELECT id, name, price_cents, category, image FROM products WHERE id=?`).get(id);
+  if (!p) return res.status(404).json({ error: 'Not found' });
+  res.json({ ...p, price: p.price_cents/100, priceText: priceToDisplay(p.price_cents) });
+});
+
+app.delete('/api/admin/products/:id(\\d+)', ensureAdmin, (req, res) => {
+  db.prepare(`DELETE FROM products WHERE id=?`).run(req.params.id);
+  res.json({ ok: true });
+});
+
+// Excel 批量上傳
+const upload = multer({ storage: multer.memoryStorage() });
+app.post('/api/admin/products/bulk', ensureAdmin, upload.single('file'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: '請上傳 Excel/CSV 檔' });
+  const wb = xlsx.read(req.file.buffer, { type: 'buffer' });
+  const sheet = wb.Sheets[wb.SheetNames[0]];
+  const rows = xlsx.utils.sheet_to_json(sheet, { defval: '' });
+
+  const upsert = db.prepare(`
+    INSERT INTO products (id, name, price_cents, category, image)
+    VALUES (@id, @name, @price_cents, @category, @image)
+    ON CONFLICT(id) DO UPDATE SET
+      name=excluded.name,
+      price_cents=excluded.price_cents,
+      category=excluded.category,
+      image=excluded.image
+  `);
+
+  const nextIdFn = () => db.prepare(`SELECT COALESCE(MAX(id),0) AS max FROM products`).get().max + 1;
+
+  const tx = db.transaction(() => {
+    for (const r of rows) {
+      const id = parseInt(r.id, 10);
+      const name = String(r.name || '').trim();
+      const category = String(r.category || r.分類 || '未分類').trim();
+      const image = String(r.image || r.圖片 || '').trim() || null;
+
+      let cents = r.price_cents;
+      if (!Number.isFinite(cents)) {
+        const price = parseFloat(r.price ?? r.價格 ?? 0);
+        cents = Math.round((Number(price) || 0) * 100);
+      }
+      if (!name) continue;
+
+      const finalId = Number.isFinite(id) ? id : nextIdFn();
+      upsert.run({ id: finalId, name, price_cents: cents || 0, category, image });
+    }
+  });
+  tx();
+
+  res.json({ ok: true, count: rows.length });
+});
+
+// (C) 訂單 CRUD
+app.get('/api/admin/orders', ensureAdmin, (req, res) => {
+  const limit = Math.max(1, Math.min(1000, parseInt(req.query.limit || '100', 10)));
+  const status = req.query.status;
+  let sql = `
+    SELECT id, created_at, total_cents, customer_name, customer_phone, status
+    FROM orders
+  `;
+  const where = [];
+  const params = {};
+  if (status && ['pending','paid','shipped','canceled'].includes(status)) {
+    where.push(`status=@status`);
+    params.status = status;
+  }
+  if (where.length) sql += ' WHERE ' + where.join(' AND ');
+  sql += ' ORDER BY created_at DESC LIMIT @limit';
+  params.limit = limit;
+
+  const rows = db.prepare(sql).all(params);
+  res.json(rows.map(o => ({ ...o, totalText: priceToDisplay(o.total_cents) })));
+});
+
+app.get('/api/admin/orders/:id(\\d+)', ensureAdmin, (req, res) => {
+  const data = fetchOrderAndItems(parseInt(req.params.id, 10));
+  if (!data) return res.status(404).json({ error: 'Not found' });
+  res.json(data);
+});
+
+app.patch('/api/admin/orders/:id(\\d+)', ensureAdmin, (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const { status, customer } = req.body || {};
+  const allowed = ['pending','paid','shipped','canceled'];
+
+  // 更新基本欄位
+  db.prepare(`
+    UPDATE orders SET
+      status = COALESCE(@status, status),
+      customer_name = COALESCE(@name, customer_name),
+      customer_phone = COALESCE(@phone, customer_phone),
+      shipping_address = COALESCE(@addr, shipping_address)
+    WHERE id=@id
+  `).run({
+    id,
+    status: allowed.includes(status) ? status : null,
+    name: customer?.name ?? null,
+    phone: customer?.phone ?? null,
+    addr: customer?.address ?? null
+  });
+
+  const data = fetchOrderAndItems(id);
+  if (!data) return res.status(404).json({ error: 'Not found' });
+  res.json(data);
+});
+
+app.delete('/api/admin/orders/:id(\\d+)', ensureAdmin, (req, res) => {
+  db.prepare(`DELETE FROM orders WHERE id=?`).run(req.params.id);
+  res.json({ ok: true });
+});
+
+// ===================================================
 
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => console.log(`✅ API listening on http://localhost:${PORT}`));

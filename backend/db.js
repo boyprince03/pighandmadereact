@@ -52,6 +52,7 @@ export function initSchema() {
       customer_phone TEXT,
       shipping_address TEXT,
       order_no TEXT
+      -- status 欄位將在下面 migration 補上
     );
 
     CREATE TABLE IF NOT EXISTS order_items (
@@ -67,6 +68,15 @@ export function initSchema() {
 
   // ===== Migration: add index on orders.order_no =====
   db.exec(`CREATE INDEX IF NOT EXISTS idx_orders_order_no ON orders(order_no);`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at);`);
+
+  // ===== Migration: add orders.status (pending/paid/shipped/canceled) =====
+  const cols = db.prepare(`PRAGMA table_info('orders')`).all();
+  const hasStatus = cols.some(c => c.name === 'status');
+  if (!hasStatus) {
+    db.exec(`ALTER TABLE orders ADD COLUMN status TEXT NOT NULL DEFAULT 'pending'`);
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);`);
+  }
 
   // ===== Trigger: 新增訂單後自動寫入 order_no =====
   const hasTrigger = db
@@ -99,6 +109,11 @@ export function resetProducts(products) {
   const insert = db.prepare(`
     INSERT INTO products (id, name, price_cents, category, image)
     VALUES (@id, @name, @price_cents, @category, @image)
+    ON CONFLICT(id) DO UPDATE SET
+      name=excluded.name,
+      price_cents=excluded.price_cents,
+      category=excluded.category,
+      image=excluded.image
   `);
   const truncate = db.prepare(`DELETE FROM products`);
   const tx = db.transaction((rows) => {
