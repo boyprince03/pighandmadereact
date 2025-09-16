@@ -1,5 +1,5 @@
-// /frontend/src/components/Footer.jsx
 import React from 'react';
+import { FaLine, FaInstagram, FaEnvelope, FaFacebook } from 'react-icons/fa';
 
 const defaultNotes = [
   'example:',
@@ -24,8 +24,21 @@ const defaultLinks = [
   { name: '官方 IG', href: 'https://www.instagram.com/5title.official/' },
 ];
 
+// 定義連結名稱與圖示的對應關係
+const linkIcons = {
+  line: FaLine,
+  instagram: FaInstagram,
+  email: FaEnvelope,
+  facebook: FaFacebook,
+};
+
+// 函式來根據連結名稱取得對應的圖示
+const getLinkIcon = (name) => {
+  const normalizedName = name.toLowerCase().replace(/^(客服|官方)\s*/, '').trim();
+  return linkIcons[normalizedName] || null;
+};
+
 const Footer = ({ notes = defaultNotes, links = defaultLinks }) => {
-  // 先清洗，再判斷是否為空；若空則回退預設
   const cleanedNotes = Array.isArray(notes)
     ? notes.map(n => String(n ?? '').trim()).filter(Boolean)
     : [];
@@ -33,11 +46,11 @@ const Footer = ({ notes = defaultNotes, links = defaultLinks }) => {
 
   const cleanedLinks = Array.isArray(links)
     ? links
-        .map(l => ({
-          name: String(l?.name ?? '').trim(),
-          href: String(l?.href ?? '').trim(),
-        }))
-        .filter(l => l.name && l.href)
+      .map(l => ({
+        name: String(l?.name ?? '').trim(),
+        href: String(l?.href ?? '').trim(),
+      }))
+      .filter(l => l.name && l.href)
     : [];
   const safeLinks = cleanedLinks.length ? cleanedLinks : defaultLinks;
 
@@ -56,18 +69,22 @@ const Footer = ({ notes = defaultNotes, links = defaultLinks }) => {
           <div>
             <h3 className="text-lg font-semibold text-white mb-4">相關連結</h3>
             <ul className="space-y-2 text-sm">
-              {safeLinks.map((link, i) => (
-                <li key={`${link.name}-${i}`}>
-                  <a
-                    href={link.href}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="hover:text-white transition-colors duration-200"
-                  >
-                    {link.name}
-                  </a>
-                </li>
-              ))}
+              {safeLinks.map((link, i) => {
+                const IconComponent = getLinkIcon(link.name);
+                return (
+                  <li key={`${link.name}-${i}`} className="flex items-center">
+                    {IconComponent && <IconComponent className="text-xl mr-2" />}
+                    <a
+                      href={link.href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="hover:text-white transition-colors duration-200"
+                    >
+                      {link.name}
+                    </a>
+                  </li>
+                );
+              })}
             </ul>
           </div>
         </div>

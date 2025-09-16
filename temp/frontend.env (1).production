@@ -1,0 +1,2 @@
+# With Nginx reverse proxy on /api
+VITE_API_BASE=/api
