@@ -1,52 +1,7 @@
-// /frontend/src/components/admin/AdminDashboard.jsx
 import React, { useEffect, useMemo, useState } from 'react';
+import RechartsBarChart from './RechartsBarChart';
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api';
-
-// 小柱狀圖（純 CSS 實作，不用外部套件）
-function MiniBarChart({ title, data = [], valueKey = 'value', labelKey = 'label', loading, error }) {
-  if (loading) {
-    return (
-      <div className="bg-white rounded-xl shadow p-4">
-        <div className="text-sm text-gray-600 mb-2">{title}</div>
-        <div className="h-40 flex items-center justify-center text-sm text-gray-500">載入中…</div>
-      </div>
-    );
-  }
-  if (error) {
-    return (
-      <div className="bg-white rounded-xl shadow p-4">
-        <div className="text-sm text-gray-600 mb-2">{title}</div>
-        <div className="h-40 flex items-center justify-center text-sm text-red-600">{error}</div>
-      </div>
-    );
-  }
-  const max = Math.max(1, ...data.map(d => Number(d[valueKey] || 0)));
-  return (
-    <div className="bg-white rounded-xl shadow p-4">
-      <div className="text-sm text-gray-600 mb-2">{title}</div>
-      <div className="h-40 flex items-end gap-2">
-        {data.map((d, i) => {
-          const raw = Number(d[valueKey] || 0);
-          const hPercent = Math.round((raw / max) * 100);
-          const minPx = 4;
-          return (
-            <div key={i} className="flex-1 flex flex-col items-center">
-              <div className="w-full bg-gray-100 rounded relative overflow-hidden" style={{ height: '100%' }}>
-                <div
-                  className="w-full rounded bg-gray-900 absolute bottom-0 left-0"
-                  style={{ height: `calc(${hPercent}% + ${minPx}px)` }}
-                  title={`${d[labelKey]}: ${raw}`}
-                />
-              </div>
-              <div className="text-[10px] text-gray-500 mt-1 truncate w-full text-center">{d[labelKey]}</div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
 
 // 產生近 12 個月 yyyy-mm 陣列（含當月）
 function last12MonthsKeys() {
@@ -79,7 +34,7 @@ export default function AdminDashboard({
   onGoOrders,
   onOpenOrder,
   onOpenProduct,
-  onGoSettings, // ← 新增：由外部控制切換到網站設定
+  onGoSettings,
 }) {
   const [sum, setSum] = useState(null);
   const [monthly, setMonthly] = useState([]);
@@ -87,6 +42,7 @@ export default function AdminDashboard({
   const [errMonthly, setErrMonthly] = useState('');
   const [loadingSum, setLoadingSum] = useState(true);
   const [errSum, setErrSum] = useState('');
+  const [showPreview, setShowPreview] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -111,11 +67,16 @@ export default function AdminDashboard({
         const res = await fetch(`${API_BASE}/admin/metrics/monthly`, { credentials: 'include' });
         if (!res.ok) throw new Error(await res.text());
         const m = await res.json();
-        setMonthly(padMonthly(Array.isArray(m) ? m : []));
+        const mArray = Array.isArray(m) ? m : [];
+        setMonthly(padMonthly(mArray));
+        // 如果實際資料筆數少於 12，則顯示提示
+        if (mArray.length < 12) {
+          setErrMonthly('資料不足，此為示範圖表');
+        }
       } catch (e) {
         console.error(e);
-        setMonthly(padMonthly([]));
-        setErrMonthly('報表資料讀取失敗（已以 0 補齊）');
+        setMonthly([]);
+        setErrMonthly('報表資料讀取失敗');
       } finally {
         setLoadingMonthly(false);
       }
@@ -123,11 +84,11 @@ export default function AdminDashboard({
   }, []);
 
   const barOrders = useMemo(
-    () => monthly.map(r => ({ label: r.ym.slice(5), value: r.orders_count })),
+    () => monthly.map(r => ({ label: r.ym.slice(5), value: r.orders_count, ym: r.ym })),
     [monthly]
   );
   const barRevenue = useMemo(
-    () => monthly.map(r => ({ label: r.ym.slice(5), value: (r.revenue_cents || 0) / 100 })),
+    () => monthly.map(r => ({ label: r.ym.slice(5), value: (r.revenue_cents || 0) / 100, ym: r.ym })),
     [monthly]
   );
 
@@ -144,6 +105,12 @@ export default function AdminDashboard({
             >
               下載報表（.xlsx）
             </a>
+            <button
+              onClick={() => setShowPreview(!showPreview)}
+              className="px-3 py-2 text-sm rounded-md border hover:bg-white"
+            >
+              {showPreview ? '隱藏預覽' : '預覽報表'}
+            </button>
             {onGoSettings && (
               <button onClick={onGoSettings} className="px-3 py-2 text-sm rounded-md border hover:bg-white">
                 ⚙️ 網站設定
@@ -154,19 +121,46 @@ export default function AdminDashboard({
 
         {/* 圖表區 */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-          <MiniBarChart
+          <RechartsBarChart
             title="月訂單數 (近12個月)"
             data={barOrders}
             loading={loadingMonthly}
             error={errMonthly && !loadingMonthly ? errMonthly : ''}
           />
-          <MiniBarChart
+          <RechartsBarChart
             title="月營收TWD (近12個月)"
             data={barRevenue}
             loading={loadingMonthly}
             error={errMonthly && !loadingMonthly ? errMonthly : ''}
           />
         </div>
+
+        {/* 月報表預覽表格 */}
+        {showPreview && (
+          <div className="bg-white rounded-xl shadow p-4 mb-6">
+            <h2 className="font-semibold text-lg mb-2">月報表預覽</h2>
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="text-left border-b bg-gray-50">
+                    <th className="px-3 py-2">月份</th>
+                    <th className="px-3 py-2">訂單數</th>
+                    <th className="px-3 py-2">營收 (TWD)</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {monthly.map(m => (
+                    <tr key={m.ym}>
+                      <td className="px-3 py-2">{m.ym}</td>
+                      <td className="px-3 py-2">{m.orders_count}</td>
+                      <td className="px-3 py-2">{ (m.revenue_cents / 100).toLocaleString('zh-TW', { style: 'currency', currency: 'TWD' })}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
 
         {/* 最新待處理訂單 + 熱銷商品 + 最新商品 */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -187,7 +181,7 @@ export default function AdminDashboard({
                     <div className="text-sm font-medium">#{o.id}・{o.totalText}</div>
                     <div className="text-xs text-gray-500">{o.created_at}</div>
                   </div>
-                  <button onClick={() => onOpenOrder(o.id)} className="text-sm px-2 py-1 border rounded hover:bg-gray-50">管理</button>
+                  <button onClick={() => onOpenOrder(o.id)} className="px-2 py-1 text-sm border rounded hover:bg-gray-50">管理</button>
                 </li>
               )) || <div className="text-sm text-gray-500 py-3">—</div>}
             </ul>
@@ -210,7 +204,7 @@ export default function AdminDashboard({
                     <div className="text-sm font-medium">{p.name}</div>
                     <div className="text-xs text-gray-500">銷量 {p.qty} ・ {p.revText}</div>
                   </div>
-                  <button onClick={() => onOpenProduct(p.id)} className="text-sm px-2 py-1 border rounded hover:bg-gray-50">編輯</button>
+                  <button onClick={() => onOpenProduct(p.id)} className="px-2 py-1 text-sm border rounded hover:bg-gray-50">編輯</button>
                 </li>
               )) || <div className="text-sm text-gray-500 py-3">—</div>}
             </ul>
@@ -233,7 +227,7 @@ export default function AdminDashboard({
                     <div className="text-sm font-medium">{p.name}</div>
                     <div className="text-xs text-gray-500">#{p.id}・{p.priceText}・{p.category}</div>
                   </div>
-                  <button onClick={() => onOpenProduct(p.id)} className="text-sm px-2 py-1 border rounded hover:bg-gray-50">編輯</button>
+                  <button onClick={() => onOpenProduct(p.id)} className="px-2 py-1 text-sm border rounded hover:bg-gray-50">編輯</button>
                 </li>
               )) || <div className="text-sm text-gray-500 py-3">—</div>}
             </ul>

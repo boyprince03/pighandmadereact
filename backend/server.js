@@ -1,4 +1,3 @@
-// /backend/server.js
 import express from 'express';
 import cors from 'cors';
 import morgan from 'morgan';
@@ -31,7 +30,11 @@ app.use(cors({ origin: FRONT_ORIGIN, credentials: true }));
 
 // ★ 新增：上傳資料夾與靜態服務
 const uploadDir = path.join(process.cwd(), 'uploads');
-if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+if (!fs.existsSync(uploadDir)) {
+  console.log('uploads資料夾不存在，正在建立...');
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
+console.log(`檔案將儲存至：${uploadDir}`);
 app.use('/uploads', express.static(uploadDir));
 
 const TWD = new Intl.NumberFormat('zh-TW', { style: 'currency', currency: 'TWD' });
@@ -407,37 +410,79 @@ app.get('/api/admin/metrics/monthly', ensureAdmin, (req, res) => {
   })));
 });
 
-// 產生 Excel 報表（月份彙總 + 熱銷）
+// 產生 Excel 報表（12個月分內的逐筆訂單+月份彙總 + 熱銷）
 app.get('/api/admin/reports/monthly.xlsx', ensureAdmin, (req, res) => {
+  // 解決方案：在 JS 中計算日期，然後作為參數傳入
+  const today = new Date();
+  const twelveMonthsAgo = new Date(today.getFullYear(), today.getMonth() - 12, today.getDate())
+    .toISOString().slice(0, 10); // 格式化為 YYYY-MM-DD
+
   const ymRows = db.prepare(`
     SELECT strftime('%Y-%m', created_at) AS ym,
            COUNT(*) AS orders_count,
            SUM(total_cents) AS revenue_cents
     FROM orders
-    WHERE created_at >= date('now','-12 months') AND status <> 'canceled'
+    WHERE created_at >= @date AND status <> 'canceled'
     GROUP BY ym
     ORDER BY ym ASC
-  `).all();
+  `).all({ date: twelveMonthsAgo });
 
   const topRows = db.prepare(`
     SELECT p.id, p.name, SUM(oi.quantity) AS qty, SUM(oi.quantity * oi.unit_price_cents) AS rev_cents
     FROM order_items oi
     JOIN orders o ON o.id = oi.order_id
     JOIN products p ON p.id = oi.product_id
-    WHERE o.created_at >= date('now','-12 months') AND o.status <> 'canceled'
+    WHERE o.created_at >= @date AND o.status <> 'canceled'
     GROUP BY p.id, p.name
     ORDER BY qty DESC
-  `).all();
+  `).all({ date: twelveMonthsAgo });
+
+  // 新增：抓取過去 12 個月內的逐筆訂單
+  const allOrdersRows = db.prepare(`
+    SELECT id, created_at, customer_name, status, total_cents
+    FROM orders
+    WHERE created_at >= @date
+    ORDER BY created_at DESC
+  `).all({ date: twelveMonthsAgo });
 
   const wb = xlsx.utils.book_new();
-  const s1 = xlsx.utils.aoa_to_sheet([['Month','Orders','Revenue(TWD)'],
-    ...ymRows.map(r => [r.ym, r.orders_count, (r.revenue_cents||0)/100])
-  ]);
-  const s2 = xlsx.utils.aoa_to_sheet([['ProductID','Name','Qty','Revenue(TWD)'],
-    ...topRows.map(r => [r.id, r.name, r.qty, (r.rev_cents||0)/100])
-  ]);
-  xlsx.utils.book_append_sheet(wb, s1, 'Monthly');
-  xlsx.utils.book_append_sheet(wb, s2, 'TopProducts');
+
+  // --- 1. 月份彙總報表 (Monthly) ---
+  const ws1 = xlsx.utils.aoa_to_sheet([['月份','訂單數','營收(TWD)']]);
+  xlsx.utils.sheet_add_aoa(ws1, ymRows.map(r => [r.ym, r.orders_count, (r.revenue_cents||0)/100]), { origin: 'A2' });
+  ws1['!cols'] = [{ wch: 10 }, { wch: 10 }, { wch: 15 }];
+  ws1['A1'].s = { font: { bold: true } };
+  ws1['B1'].s = { font: { bold: true } };
+  ws1['C1'].s = { font: { bold: true } };
+
+  // --- 2. 熱銷商品報表 (TopProducts) ---
+  const ws2 = xlsx.utils.aoa_to_sheet([['商品ID','名稱','銷量','營收(TWD)']]);
+  xlsx.utils.sheet_add_aoa(ws2, topRows.map(r => [r.id, r.name, r.qty, (r.rev_cents||0)/100]), { origin: 'A2' });
+  ws2['!cols'] = [{ wch: 10 }, { wch: 30 }, { wch: 10 }, { wch: 15 }];
+  ws2['A1'].s = { font: { bold: true } };
+  ws2['B1'].s = { font: { bold: true } };
+  ws2['C1'].s = { font: { bold: true } };
+  ws2['D1'].s = { font: { bold: true } };
+
+  // --- 3. 逐筆訂單報表 (DetailedOrders) ---
+  const ws3 = xlsx.utils.aoa_to_sheet([['訂單ID', '建立時間', '客戶姓名', '訂單狀態', '總金額(TWD)']]);
+  xlsx.utils.sheet_add_aoa(ws3, allOrdersRows.map(r => [
+    r.id,
+    r.created_at,
+    r.customer_name,
+    r.status,
+    (r.total_cents || 0) / 100
+  ]), { origin: 'A2' });
+  ws3['!cols'] = [{ wch: 10 }, { wch: 20 }, { wch: 20 }, { wch: 15 }, { wch: 15 }];
+  ws3['A1'].s = { font: { bold: true } };
+  ws3['B1'].s = { font: { bold: true } };
+  ws3['C1'].s = { font: { bold: true } };
+  ws3['D1'].s = { font: { bold: true } };
+  ws3['E1'].s = { font: { bold: true } };
+
+  xlsx.utils.book_append_sheet(wb, ws1, 'Monthly');
+  xlsx.utils.book_append_sheet(wb, ws2, 'TopProducts');
+  xlsx.utils.book_append_sheet(wb, ws3, 'DetailedOrders');
 
   const buf = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' });
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -481,12 +526,24 @@ const imageUpload = multer({
     cb(new Error('僅允許上傳圖片（jpg/png/webp/gif）'));
   }
 });
-app.post('/api/admin/upload', ensureAdmin, imageUpload.single('image'), (req, res) => {
-  const filename = req.file?.filename;
-  if (!filename) return res.status(400).json({ error: '未接收到檔案' });
-  const base = `${req.protocol}://${req.get('host')}`;
-  const url = `${base}/uploads/${filename}`; // 回傳完整可用 URL
-  res.json({ url, filename });
+app.post('/api/admin/upload', ensureAdmin, (req, res, next) => {
+  console.log('--- 收到圖片上傳請求 ---');
+  console.log('uploadDir:', uploadDir);
+  imageUpload.single('image')(req, res, (err) => {
+    if (err) {
+      console.error('Multer 上傳錯誤:', err);
+      return res.status(400).json({ error: err.message || '上傳失敗' });
+    }
+    const filename = req.file?.filename;
+    console.log('上傳成功！檔案名稱:', filename);
+    if (!filename) {
+      console.error('上傳成功但沒有檔案名稱');
+      return res.status(400).json({ error: '未接收到檔案' });
+    }
+    const base = `${req.protocol}://${req.get('host')}`;
+    const url = `${base}/uploads/${filename}`; // 回傳完整可用 URL
+    res.json({ url, filename });
+  });
 });
 
 // 產品建立/更新（原樣）：

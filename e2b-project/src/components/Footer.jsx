@@ -21,7 +21,7 @@ const defaultNotes = [
 const defaultLinks = [
   { name: '客服 LINE', href: 'https://lin.ee/oqrp3av' },
   { name: '官方 LINE', href: 'https://lin.ee/WbLiLko' },
-  { name: '官方 IG', href: 'https://www.instagram.com/5title.official/' },
+  { name: '官方 Instagram', href: 'https://www.instagram.com/5title.official/' },
 ];
 
 // 定義連結名稱與圖示的對應關係

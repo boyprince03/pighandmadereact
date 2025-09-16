@@ -62,7 +62,7 @@ export default function AdminProductForm({ productId, onBack }) {
     setLocalPreview(url);
   };
 
-  // 上傳圖片到後端（★ 成功後自動寫回 DB：編輯模式）
+  // 上傳圖片到後端（不直接寫入資料庫）
   const onUploadImage = async () => {
     const file = fileRef.current?.files?.[0];
     if (!file) return alert('請先選擇圖片檔案');
@@ -82,33 +82,10 @@ export default function AdminProductForm({ productId, onBack }) {
         throw new Error(j.error || '上傳失敗');
       }
       const data = await res.json();              // { url, filename }
-      setForm(f => ({ ...f, image: data.url }));  // 先更新表單顯示
+      setForm(f => ({ ...f, image: data.url }));  // 只更新表單顯示
       setLocalPreview('');
       if (fileRef.current) fileRef.current.value = '';
-
-      // ★★★ 新增：若為編輯模式，立刻寫回資料庫（PUT）
-      if (!isNew) {
-        const putPayload = {
-          name: form.name,
-          category: form.category,
-          price: Number(form.price) || 0,
-          image: data.url
-        };
-        const saveRes = await fetch(`${API_BASE}/admin/products/${productId}`, {
-          method: 'PUT',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(putPayload)
-        });
-        if (!saveRes.ok) {
-          const j = await saveRes.json().catch(()=>({}));
-          throw new Error(j.error || '圖片已上傳，但寫入資料庫失敗（請手動按「儲存」）');
-        }
-        alert('圖片已上傳並寫入資料庫');
-      } else {
-        // 新增模式還沒有正式建檔，僅先更新畫面上的 URL；完成其他欄位後按「儲存」即可入庫
-        alert('圖片已上傳（新增商品需按「儲存」才會寫入資料庫）');
-      }
+      alert('圖片已上傳（請按「儲存」才會寫入資料庫）');
     } catch (e) {
       console.error(e);
       alert(e.message || '上傳失敗');
